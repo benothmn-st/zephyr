@@ -23,6 +23,8 @@
 #include <zephyr/sys/__assert.h>
 #include <soc.h>
 
+#include <zephyr/debug_gpios.h>
+
 #include <zephyr/settings/settings.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
@@ -4240,6 +4242,7 @@ static void rx_work_handler(struct k_work *work)
 
 	struct net_buf *buf;
 
+	set_debug_gpio(9, 1);
 	LOG_DBG("Getting net_buf from queue");
 	buf = net_buf_slist_get(&bt_dev.rx_queue);
 	if (!buf) {
@@ -4284,6 +4287,7 @@ static void rx_work_handler(struct k_work *work)
 			LOG_ERR("Could not submit rx_work: %d", err);
 		}
 	}
+	set_debug_gpio(9, 0);
 }
 
 #if defined(CONFIG_BT_TESTING)

@@ -13,6 +13,7 @@
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/kernel.h>
+#include <zephyr/debug_gpios.h>
 
 #include <zephyr/settings/settings.h>
 
@@ -413,11 +414,28 @@ static struct bt_hrs_cb hrs_cb = {
 	.ctrl_point_write = bt_hrs_ctrl_point_write,
 };
 
+#define SLEEP_TIME_MS 5
+
 int main(void)
 {
 	struct bt_gatt_attr *vnd_ind_attr;
 	char str[BT_UUID_STR_LEN];
 	int err;
+
+	init_debug_gpios();
+
+	/* Test the GPIOs, Check to be done with a logic analyzer */
+	for (int i=0; i<DEBUG_GPIO_COUNT; i++) {
+		set_debug_gpio(i+1, 1);
+		k_msleep(SLEEP_TIME_MS);
+	}
+	for (int i=0; i<DEBUG_GPIO_COUNT; i++) {
+		set_debug_gpio(i+1, 0);
+		k_msleep(SLEEP_TIME_MS);
+	}
+
+	set_debug_gpio(3, 1);
+
 
 	err = bt_enable(NULL);
 	if (err) {

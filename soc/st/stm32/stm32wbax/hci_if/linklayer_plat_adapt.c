@@ -7,6 +7,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/entropy.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/debug_gpios.h>
 
 #include "scm.h"
 
@@ -63,6 +64,7 @@ void LINKLAYER_PLAT_SetupSwLowIT(void (*intr_cb)())
 
 void radio_high_prio_isr(void)
 {
+	set_debug_gpio(1, 1);
 	radio_callback();
 
 	HAL_RCCEx_DisableRequestUponRadioWakeUpEvent();
@@ -70,10 +72,12 @@ void radio_high_prio_isr(void)
 	__ISB();
 
 	ISR_DIRECT_PM();
+	set_debug_gpio(1, 0);
 }
 
 void radio_low_prio_isr(void)
 {
+	set_debug_gpio(2, 1);
 	irq_disable((IRQn_Type)RADIO_SW_LOW_INTR_NUM);
 
 	low_isr_callback();
@@ -88,6 +92,7 @@ void radio_low_prio_isr(void)
 	irq_enable((IRQn_Type)RADIO_SW_LOW_INTR_NUM);
 
 	ISR_DIRECT_PM();
+	set_debug_gpio(2, 0);
 }
 
 
@@ -242,6 +247,10 @@ void LINKLAYER_PLAT_RequestTemperature(void) {}
 
 void LINKLAYER_PLAT_SCHLDR_TIMING_UPDATE_NOT(Evnt_timing_t *p_evnt_timing) {}
 
-void LINKLAYER_PLAT_EnableOSContextSwitch(void) {}
+void LINKLAYER_PLAT_EnableOSContextSwitch(void) {
+	set_debug_gpio(3, 1);
+}
 
-void LINKLAYER_PLAT_DisableOSContextSwitch(void) {}
+void LINKLAYER_PLAT_DisableOSContextSwitch(void) {
+	set_debug_gpio(3, 0);
+}

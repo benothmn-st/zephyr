@@ -27,6 +27,8 @@
 #include "hci_ecc.h"
 #include "ecc.h"
 
+#include <zephyr/debug_gpios.h>
+
 #ifdef CONFIG_BT_HCI_RAW
 #include <zephyr/bluetooth/hci_raw.h>
 #include "hci_raw_internal.h"
@@ -251,6 +253,7 @@ exit:
 
 static void ecc_process(struct k_work *work)
 {
+	set_debug_gpio(10, 1);
 	if (atomic_test_bit(flags, PENDING_PUB_KEY)) {
 		emulate_le_p256_public_key_cmd();
 	} else if (atomic_test_bit(flags, PENDING_DHKEY)) {
@@ -258,6 +261,7 @@ static void ecc_process(struct k_work *work)
 	} else {
 		__ASSERT(0, "Unhandled ECC command");
 	}
+	set_debug_gpio(10, 0);
 }
 
 static void clear_ecc_events(struct net_buf *buf)

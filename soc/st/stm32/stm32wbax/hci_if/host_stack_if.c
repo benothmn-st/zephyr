@@ -6,6 +6,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/init.h>
+#include <zephyr/debug_gpios.h>
 
 #include "app_conf.h"
 #include "blestack.h"
@@ -37,6 +38,7 @@ static void ble_ctlr_stack_handler(struct k_work *work)
 	change_state_options_t options;
 
 	k_mutex_lock(&ble_ctlr_stack_mutex, K_FOREVER);
+	set_debug_gpio(5, 1);
 	running = BleStack_Process();
 	k_mutex_unlock(&ble_ctlr_stack_mutex);
 
@@ -49,6 +51,7 @@ static void ble_ctlr_stack_handler(struct k_work *work)
 	if (running == BLE_SLEEPMODE_RUNNING) {
 		HostStack_Process();
 	}
+	set_debug_gpio(5, 0);
 }
 
 void BPKACB_Process(void)
@@ -58,7 +61,9 @@ void BPKACB_Process(void)
 
 static void bpka_work_handler(struct k_work *work)
 {
+	set_debug_gpio(6, 1);
 	BPKA_BG_Process();
+	set_debug_gpio(6, 0);
 }
 
 static int stm32wba_ble_ctlr_init(void)

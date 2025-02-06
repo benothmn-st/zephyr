@@ -5,6 +5,7 @@
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/debug_gpios.h>
 
 #include <zephyr/logging/log.h>
 #define LOG_LEVEL CONFIG_SOC_LOG_LEVEL
@@ -29,7 +30,9 @@ void ll_sys_schedule_bg_process_isr(void)
 static void ll_sys_bg_process_handler(struct k_work *work)
 {
 	k_mutex_lock(&ble_ctlr_stack_mutex, K_FOREVER);
+	set_debug_gpio(4, 1);
 	ll_sys_bg_process();
+	set_debug_gpio(4, 0);
 	k_mutex_unlock(&ble_ctlr_stack_mutex);
 }
 

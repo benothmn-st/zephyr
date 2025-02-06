@@ -8,6 +8,7 @@
 #include <zephyr/device.h>
 #include <zephyr/init.h>
 #include <zephyr/drivers/flash.h>
+#include <zephyr/debug_gpios.h>
 
 #define DT_DRV_COMPAT st_stm32wba_flash_controller
 
@@ -53,8 +54,9 @@ void FM_ProcessRequest(void)
 void FM_BackgroundProcess_Entry(struct k_work *work)
 {
 	ARG_UNUSED(work);
-
+	set_debug_gpio(11, 1);
 	FM_BackgroundProcess();
+	set_debug_gpio(11, 0);
 }
 
 bool flash_stm32_valid_range(const struct device *dev, off_t offset,
