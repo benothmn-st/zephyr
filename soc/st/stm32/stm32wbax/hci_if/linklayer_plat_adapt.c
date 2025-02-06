@@ -7,14 +7,19 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/entropy.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/atomic.h>
+#include <string.h>
 
 #include "scm.h"
 
+#define CONTEXT_SWITCH_MANAGER (1)
 #define LOG_LEVEL CONFIG_SOC_LOG_LEVEL
 LOG_MODULE_REGISTER(linklayer_plat_adapt);
 
 #define RADIO_INTR_PRIO_HIGH_Z (RADIO_INTR_PRIO_HIGH + _IRQ_PRIO_OFFSET)
 #define RADIO_INTR_PRIO_LOW_Z (RADIO_INTR_PRIO_LOW + _IRQ_PRIO_OFFSET)
+
+#define CONTEXT_SW_MANAGER_THREAD_PRIO (1)
 
 /* 2.4GHz RADIO ISR callbacks */
 typedef void (*radio_isr_cb_t) (void);
@@ -33,6 +38,53 @@ volatile uint32_t local_basepri_value;
 /* Radio SW low ISR global variable */
 volatile uint8_t radio_sw_low_isr_is_running_high_prio;
 
+#if CONTEXT_SWITCH_MANAGER
+/* Atomic variable to communicate between ISR and thread
+ * 1 = enabled, 0 = disabled
+ */
+static atomic_t context_switch_enabled = ATOMIC_INIT(1);
+
+/* Semaphore to signal the thread */
+K_SEM_DEFINE(context_switch_sem, 0, 1);
+
+static void suspend_some_threads(void) {
+	struct k_thread *thread;
+	for (thread = _kernel.threads; thread != NULL; thread = thread->next_thread) {
+		if (thread != k_current_get() &&
+			(strcmp(thread->name, "ll_thread_id") != 0)) {
+			/* Suspend all threads except those in the if condition */
+			k_thread_suspend(thread);
+		}
+	}
+}
+
+static void resume_some_threads(void) {
+	struct k_thread *thread;
+	for (thread = _kernel.threads; thread != NULL; thread = thread->next_thread) {
+		if (thread != k_current_get() &&
+			(strcmp(thread->name, "ll_thread_id") != 0)) {
+			k_thread_resume(thread);
+		}
+	}
+}
+
+/* Dedicated Thread to Manage Context Switching */
+static void context_switch_manager_thread(void *arg1, void *arg2, void *arg3) {
+	while(1) {
+		k_sem_take(&context_switch_sem, K_FOREVER);
+		
+		if (atomic_get(&context_switch_enabled) == 0) {
+			suspend_some_threads();
+		}
+		else {
+			resume_some_threads();
+		}
+	}
+}
+
+/* Define the context switch manager thread */
+K_THREAD_DEFINE(context_switch_manager_thread_id, 1024, context_switch_manager_thread, NULL, NULL, NULL, CONTEXT_SW_MANAGER_THREAD_PRIO, 0, 0);
+#endif
 
 void LINKLAYER_PLAT_DelayUs(uint32_t delay)
 {
@@ -242,6 +294,18 @@ void LINKLAYER_PLAT_RequestTemperature(void) {}
 
 void LINKLAYER_PLAT_SCHLDR_TIMING_UPDATE_NOT(Evnt_timing_t *p_evnt_timing) {}
 
-void LINKLAYER_PLAT_EnableOSContextSwitch(void) {}
+void LINKLAYER_PLAT_EnableOSContextSwitch(void)
+{
+	#if CONTEXT_SWITCH_MANAGER
+	atomic_set(&context_switch_enabled, 1);
+    k_sem_give(&context_switch_sem);
+	#endif
+}
 
-void LINKLAYER_PLAT_DisableOSContextSwitch(void) {}
+void LINKLAYER_PLAT_DisableOSContextSwitch(void)
+{
+	#if CONTEXT_SWITCH_MANAGER
+	atomic_set(&context_switch_enabled, 0);
+    k_sem_give(&context_switch_sem);
+	#endif
+}

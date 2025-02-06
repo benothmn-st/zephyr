@@ -24,8 +24,11 @@ LOG_MODULE_REGISTER(flash_stm32wba, CONFIG_FLASH_LOG_LEVEL);
 #define STM32_FLASH_TIMEOUT	\
 	(2 * DT_PROP(DT_INST(0, st_stm32_nv_flash), max_erase_time))
 
-extern struct k_work_q ble_ctlr_work_q;
-struct k_work fm_work;
+#define FLASH_THREAD_STACK_SIZE (1024*2)
+#define FLASH_THREAD_PRIO (14)
+K_THREAD_STACK_DEFINE(flash_stack_area, FLASH_THREAD_STACK_SIZE);
+
+static struct k_thread flash_thread_data;
 
 static const struct flash_parameters flash_stm32_parameters = {
 	.write_block_size = FLASH_STM32_WRITE_BLOCK_SIZE,
@@ -33,6 +36,7 @@ static const struct flash_parameters flash_stm32_parameters = {
 };
 
 K_SEM_DEFINE(flash_busy, 0, 1);
+K_SEM_DEFINE(flash_thread_semaphore, 0, 1);
 
 static void flash_callback(FM_FlashOp_Status_t status)
 {
@@ -47,14 +51,15 @@ struct FM_CallbackNode cb_ptr = {
 
 void FM_ProcessRequest(void)
 {
-	k_work_submit_to_queue(&ble_ctlr_work_q, &fm_work);
+	k_sem_give(&flash_thread_semaphore);
 }
 
-void FM_BackgroundProcess_Entry(struct k_work *work)
+void FM_BackgroundProcess_Entry(void *arg1, void *arg2, void *arg3)
 {
-	ARG_UNUSED(work);
-
-	FM_BackgroundProcess();
+	while(1) {
+		k_sem_take(&flash_thread_semaphore, K_FOREVER);
+		FM_BackgroundProcess();
+	}
 }
 
 bool flash_stm32_valid_range(const struct device *dev, off_t offset,
@@ -204,7 +209,12 @@ static int stm32_flash_init(const struct device *dev)
 	LOG_DBG("Flash initialized. BS: %zu",
 		flash_stm32_parameters.write_block_size);
 
-	k_work_init(&fm_work, &FM_BackgroundProcess_Entry);
+	k_thread_create(&flash_thread_data, flash_stack_area,
+					K_THREAD_STACK_SIZEOF(flash_stack_area),
+					FM_BackgroundProcess_Entry, NULL, NULL, NULL,
+					FLASH_THREAD_PRIO, 0, K_NO_WAIT);
+
+	k_thread_name_set(&flash_thread_data, "flash_thread");
 
 	/* Enable flash driver system flag */
 	FD_SetStatus(FD_FLASHACCESS_RFTS, LL_FLASH_DISABLE);

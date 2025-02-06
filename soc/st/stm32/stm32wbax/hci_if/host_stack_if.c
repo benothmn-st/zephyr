@@ -7,76 +7,71 @@
 #include <zephyr/kernel.h>
 #include <zephyr/init.h>
 
-#include "app_conf.h"
 #include "blestack.h"
 #include "bpka.h"
 #include "ll_intf.h"
 
-K_MUTEX_DEFINE(ble_ctlr_stack_mutex);
-struct k_work_q ble_ctlr_work_q, ll_work_q;
-struct k_work ble_ctlr_stack_work, bpka_work;
+/* The thread stacks' sizes to be updated depending on the application
+ * complexity and on the number of links.
+ */
+#define BPKA_THREAD_STACK_SIZE (1024 + 512)
+#define LL_CTRL_THREAD_STACK_SIZE (1024 + 512)
+
+#define BPKA_THREAD_PRIO (14)
+#define LL_CTRL_THREAD_PRIO (14)
+
+K_MUTEX_DEFINE(ll_ctrl_mutex);
+K_SEM_DEFINE(ll_ctrl_semaphore, 0, 1);
+K_SEM_DEFINE(bpka_semaphore, 0, 1);
+
+K_THREAD_STACK_DEFINE(bpka_stack_area, BPKA_THREAD_STACK_SIZE);
+K_THREAD_STACK_DEFINE(ll_ctrl_stack_area, LL_CTRL_THREAD_STACK_SIZE);
 
 uint8_t ll_state_busy;
 
-#define BLE_CTLR_TASK_STACK_SIZE (256 * 7)
-#define LL_TASK_STACK_SIZE (256 * 7)
-#define BLE_CTLR_TASK_PRIO	 (14)
-#define LL_TASK_PRIO (14)
+void HostStack_Process(void);
 
-K_THREAD_STACK_DEFINE(ble_ctlr_work_area, BLE_CTLR_TASK_STACK_SIZE);
-K_THREAD_STACK_DEFINE(ll_work_area, LL_TASK_STACK_SIZE);
+static void ll_ctrl_thread(void *arg1, void *arg2, void *arg3)
+{
+	uint8_t running = 0x00;
+	change_state_options_t options;
+	while(1) {
+		k_sem_take(&ll_ctrl_semaphore, K_FOREVER);
+		k_mutex_lock(&ll_ctrl_mutex, K_FOREVER);
+		running = BleStack_Process();
+		k_mutex_unlock(&ll_ctrl_mutex);
+
+		if (ll_state_busy == 1) {
+			options.combined_value = 0x0F;
+			ll_intf_chng_evnt_hndlr_state(options);
+			ll_state_busy = 0;
+		}
+
+		if (running == BLE_SLEEPMODE_RUNNING) {
+			HostStack_Process();
+		}
+	}
+}
+
+static void bpka_thread(void *arg1, void *arg2, void *arg3)
+{
+	while(1) {
+		k_sem_take(&bpka_semaphore, K_FOREVER);
+		BPKA_BG_Process();
+	}
+}
+
 
 void HostStack_Process(void)
 {
-	k_work_submit_to_queue(&ble_ctlr_work_q, &ble_ctlr_stack_work);
-}
-
-static void ble_ctlr_stack_handler(struct k_work *work)
-{
-	uint8_t running = 0x0;
-	change_state_options_t options;
-
-	k_mutex_lock(&ble_ctlr_stack_mutex, K_FOREVER);
-	running = BleStack_Process();
-	k_mutex_unlock(&ble_ctlr_stack_mutex);
-
-	if (ll_state_busy == 1) {
-		options.combined_value = 0x0F;
-		ll_intf_chng_evnt_hndlr_state(options);
-		ll_state_busy = 0;
-	}
-
-	if (running == BLE_SLEEPMODE_RUNNING) {
-		HostStack_Process();
-	}
+	k_sem_give(&ll_ctrl_semaphore);
 }
 
 void BPKACB_Process(void)
 {
-	k_work_submit_to_queue(&ble_ctlr_work_q, &bpka_work);
+	k_sem_give(&bpka_semaphore);
 }
 
-static void bpka_work_handler(struct k_work *work)
-{
-	BPKA_BG_Process();
-}
+K_THREAD_DEFINE(ll_ctrl_thread_id, K_THREAD_STACK_SIZEOF(ll_ctrl_stack_area), ll_ctrl_thread, NULL, NULL, NULL, LL_CTRL_THREAD_PRIO, 0, 0);
+K_THREAD_DEFINE(bpka_thread_id, K_THREAD_STACK_SIZEOF(bpka_stack_area), bpka_thread, NULL, NULL, NULL, BPKA_THREAD_PRIO, 0, 0);
 
-static int stm32wba_ble_ctlr_init(void)
-{
-	k_work_queue_init(&ble_ctlr_work_q);
-	k_work_queue_start(&ble_ctlr_work_q, ble_ctlr_work_area,
-				K_THREAD_STACK_SIZEOF(ble_ctlr_work_area),
-				BLE_CTLR_TASK_PRIO, NULL);
-
-	k_work_queue_init(&ll_work_q);
-	k_work_queue_start(&ll_work_q, ll_work_area,
-				K_THREAD_STACK_SIZEOF(ll_work_area),
-				LL_TASK_PRIO, NULL);
-
-	k_work_init(&ble_ctlr_stack_work, &ble_ctlr_stack_handler);
-	k_work_init(&bpka_work, &bpka_work_handler);
-
-	return 0;
-}
-
-SYS_INIT(stm32wba_ble_ctlr_init, POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
